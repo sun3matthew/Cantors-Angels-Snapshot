@@ -1,0 +1,69 @@
+#pragma kernel Update
+
+#define DUST_LIFE 90.0
+#define SIZE 6000
+
+#include "ParticleShader.cginc"
+
+
+struct ExtraInfo{
+    float MaxOpacity;
+    float Angle;
+};
+
+RWStructuredBuffer<ExtraInfo> ExtraInfoBuffer;
+
+float Angle;
+float2 CurrentPosition;
+int CurrentHorizontalSize;
+
+[numthreads(32,1,1)]
+void Update (uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+
+    Particle particle = Particles[index];
+    ExtraInfo extraInfo = ExtraInfoBuffer[index];
+
+    if (particle.Life > 0){
+        particle.Life -= Dt;
+    }else{
+        uint initializeIdx = index - EmitIdx;
+        if (initializeIdx >= 0 && initializeIdx < NumberToEmit){
+            int subIdx = CurrentHorizontalSize + initializeIdx;
+            float offsetX = (subIdx % 2 * 2 - 1) * ((uint)subIdx / 2);
+            particle.Position = CurrentPosition + float2(offsetX, 0);
+            particle.Life = DUST_LIFE;
+
+            float2 seed = CurrentPosition;
+            float maxOpacity = 0.44 * rand(seed);
+
+            extraInfo.MaxOpacity = maxOpacity;
+            extraInfo.Angle = Angle;
+        }
+    }
+
+    ExtraInfoBuffer[index] = extraInfo;
+    Particles[index] = particle;
+
+    int x = (int)(particle.Position.x - CameraPosition.x * PIXEL_SCALE);
+    int y = (int)(particle.Position.y - CameraPosition.y * PIXEL_SCALE);
+
+    // Origin is x, y. With Angle, dray a line with length SIZE in the direction of Angle
+    // The line should be y lead, so every y point only has one x point, there will be spaces.
+    // float2 direction = float2(cos(extraInfo.Angle), sin(extraInfo.Angle));
+    float lifeOpacity = clamp((0.5 - abs((particle.Life / DUST_LIFE) - 0.5)) * 2.0 * extraInfo.MaxOpacity, 0, 1);
+    float4 colorBase = float4(1, 0.8, 0.6, 1);
+    for (uint iy = 0; iy < SIZE; iy++){
+        int px = x + iy / tan(extraInfo.Angle);
+        int py = y + iy;
+        if (px >= 0 && (uint)px < ResultSize.x && py >= 0 && (uint)py < ResultSize.y){
+            float y = (float)iy / SIZE;
+            float opacity = -pow((y - 0.24973) * 1.35, 2) + 1; 
+            if (y < 0.273)
+                opacity = 1 / (1 + exp((-y + 0.1) * 40));
+            opacity *= lifeOpacity;
+            Result[uint2(px, py)] = lerp(Result[uint2(px, py)], colorBase, opacity);
+        }
+    }
+}

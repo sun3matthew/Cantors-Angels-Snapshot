@@ -1,0 +1,32 @@
+#pragma kernel Update
+
+#define DUST_LIFE 14.0
+
+#include "ParticleShader.cginc"
+
+[numthreads(32,1,1)]
+void Update (uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+    float2 randSeeder = float2(RandSeed, index/float(NumParticles));
+
+    Particle particle = Particles[index];
+
+    if (particle.Life > 0){
+        particle.Acceleration = float2(rand(randSeeder, -4, 4), rand(randSeeder, -3, 1));
+        particle.Position += particle.Velocity * Dt;
+        particle.Velocity += particle.Acceleration * Dt;
+        particle.Life -= Dt;
+    }else{
+        uint initializeIdx = index - EmitIdx;
+        if (initializeIdx >= 0 && initializeIdx < NumberToEmit){
+            particle.Position = randomPosition(randSeeder);
+            particle.Velocity = float2(rand(randSeeder, -2, 2), rand(randSeeder, -8, 4));
+            particle.Acceleration = float2(0, 0);
+            particle.Life = DUST_LIFE;
+        }
+    }
+
+    Particles[index] = particle;
+    render(particle, float4(0.04, 0.037, 0.03, clamp((0.5 - abs((particle.Life / DUST_LIFE) - 0.5)) * 4.0, 0, 1)));
+}

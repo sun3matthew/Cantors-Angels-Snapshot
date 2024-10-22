@@ -1,0 +1,56 @@
+#pragma kernel Update
+
+// #define DUST_LIFE 120.0
+#define DUST_LIFE 180.0
+
+#include "ParticleShader.cginc"
+
+struct ExtraInfo{
+    int size;
+};
+
+RWStructuredBuffer<ExtraInfo> ExtraInfoBuffer;
+
+float MaxOpacity;
+float3 HazeColor;
+float2 CurrentPosition;
+float2 CurrentVelocity;
+int EmitSize;
+
+[numthreads(32,1,1)]
+void Update (uint3 id : SV_DispatchThreadID)
+{
+    uint index = id.x;
+
+    Particle particle = Particles[index];
+    ExtraInfo extraInfo = ExtraInfoBuffer[index];
+
+    if (particle.Life > 0){
+        particle.Position += particle.Velocity * Dt;
+        particle.Life -= Dt;
+    }else{
+        uint initializeIdx = index - EmitIdx;
+        if (initializeIdx >= 0 && initializeIdx < NumberToEmit){
+            particle.Position = CurrentPosition;
+            particle.Velocity = CurrentVelocity;
+            particle.Life = DUST_LIFE;
+            extraInfo.size = EmitSize;
+        }
+    }
+
+    Particles[index] = particle;
+    ExtraInfoBuffer[index] = extraInfo;
+
+    int x = (int)(particle.Position.x - CameraPosition.x * PIXEL_SCALE) - extraInfo.size / 2;
+    int y = (int)(particle.Position.y - CameraPosition.y * PIXEL_SCALE);
+
+    float4 colorBase = float4(HazeColor.x, HazeColor.y, HazeColor.z, 1);
+    float opacity = clamp((0.5 - abs((particle.Life / DUST_LIFE) - 0.5)) * 2.0 * MaxOpacity, 0, 1);
+    for (uint ix = 0; ix < extraInfo.size; ix++){
+        int px = x + ix;
+        int py = y;
+        if (px >= 0 && (uint)px < ResultSize.x && py >= 0 && (uint)py < ResultSize.y){
+            Result[uint2(px, py)] = lerp(Result[uint2(px, py)], colorBase, opacity);
+        }
+    }
+}

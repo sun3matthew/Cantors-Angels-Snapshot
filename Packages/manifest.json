@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "com.rlabrecque.steamworks.net": "https://github.com/rlabrecque/Steamworks.NET.git?path=/com.rlabrecque.steamworks.net",
+    "com.suncats.packages": "https://github.com/sun3matthew/SuncatsBaseUnityPackages.git",
+    "com.unity.multiplayer.center": "1.0.0",
+    "com.unity.modules.audio": "1.0.0",
+    "com.unity.modules.ui": "1.0.0"
+  }
+}

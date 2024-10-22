@@ -1,0 +1,158 @@
+#pragma kernel Update
+#define MaxNodesSqrt 2048
+
+struct CommitNode
+{
+    float x;
+    float y;
+
+    float TargetX;
+    float TargetY;
+
+    int ParentIndex;
+
+    float OffsetAngle;
+    float AbsoluteAngle;
+    float Length;
+
+    uint Depth;
+    uint BranchIndex;
+
+    float RandSeed;
+};
+
+RWStructuredBuffer<CommitNode> nodes;
+
+RWTexture2D<float4> Result;
+uint Resolution;
+
+float DeltaTime;
+
+int CurrentEmitIdx;
+RWStructuredBuffer<CommitNode> NodeToAdd;
+
+int SelectedBranch;
+// int SelectedNode;
+
+#define MaxReturnedNodes 3
+RWBuffer<float3> ReturnedNodes;
+RWBuffer<int> RequestedNodes;
+
+float rand(float2 co){
+    return frac(sin(dot(co.xy, float2(12.9898,78.233))) * 43758.5453);
+}
+
+[numthreads(8,8,1)]
+void Update (uint3 id : SV_DispatchThreadID){
+    int idx = id.y * MaxNodesSqrt + id.x;
+    if (idx == 0)
+        return;
+
+    CommitNode node = nodes[idx];
+    if (idx == CurrentEmitIdx)
+        node = NodeToAdd[0];
+
+    
+    float parentAngle = 0;
+    float2 parentPos = float2(0, 0);
+
+    if (node.ParentIndex != 0){
+        parentAngle = nodes[node.ParentIndex].AbsoluteAngle;
+        parentPos = float2(nodes[node.ParentIndex].TargetX, nodes[node.ParentIndex].TargetY);
+    }else{
+        node.OffsetAngle += 0.001 * node.RandSeed * DeltaTime;
+    }
+
+    node.AbsoluteAngle = parentAngle + node.OffsetAngle;
+
+    node.TargetX = parentPos.x + cos(node.AbsoluteAngle) * node.Length;
+    node.TargetY = parentPos.y + sin(node.AbsoluteAngle) * node.Length;
+    float2 delta = float2(node.TargetX, node.TargetY) - float2(node.x, node.y);
+    float2 step = delta * (node.Depth / 1000.0) * DeltaTime;
+
+    node.x += step.x;
+    node.y += step.y;
+
+    if (idx == CurrentEmitIdx){
+        node.x = node.TargetX;
+        node.y = node.TargetY;
+    }
+
+    nodes[idx] = node;
+
+    if (node.ParentIndex != -1){
+        float colorShade = 1.0 - (node.Depth / 1000.0);
+        if (colorShade < 0.1)
+            colorShade = 0.1;
+        colorShade /= 3;
+        float4 color = float4(colorShade, colorShade, colorShade, 1);
+
+        if (node.BranchIndex == SelectedBranch)
+            color = float4(1, 1, 1, 1);
+
+        // if(idx == SelectedNode)
+        //     color = float4(0, 1, 0, 1);
+
+        CommitNode parent = nodes[node.ParentIndex];
+
+        int x1 = int(node.x) + Resolution / 2;
+        int y1 = int(node.y) + Resolution / 2;
+
+        int x2 = int(parent.x) + Resolution / 2;
+        int y2 = int(parent.y) + Resolution / 2;
+
+        int2 delta = int2(x2 - x1, y2 - y1);
+        int steps = max(abs(delta.x), abs(delta.y));
+        float2 step = float2(delta) / steps;
+
+        if (x1 >= 0 && (uint)x1 < Resolution && y1 >= 0 && (uint)y1 < Resolution && x2 >= 0 && (uint)x2 < Resolution && y2 >= 0 && (uint)y2 < Resolution){
+            float2 pos = float2(x1, y1);
+            for (int i = 0; i < steps; i++){
+                pos += step;
+                Result[int2(pos)] = color;
+            }
+        }
+    }
+
+    for (int i = 0; i < MaxReturnedNodes; i++)
+        if (RequestedNodes[i] == idx)
+            ReturnedNodes[i] = float3(node.x, node.y, node.AbsoluteAngle);
+}
+
+#pragma kernel DetectClick
+RWBuffer<int> BranchClickBuffer;
+float MouseX;
+float MouseY;
+float ScrollScale;
+
+[numthreads(8,8,1)]
+void DetectClick (uint3 id : SV_DispatchThreadID){
+    int idx = id.y * MaxNodesSqrt + id.x;
+
+    CommitNode node = nodes[idx];
+    float2 pos = float2(node.x, node.y);
+    float dist = length(pos - float2(MouseX, MouseY));
+    if (dist < 20 / ScrollScale)
+        BranchClickBuffer[0] = idx;
+}
+
+// TODO: Add group node deploy kernal
+
+#pragma kernel BatchNodeAdd
+RWStructuredBuffer<CommitNode> NodesToAdd;
+int NumNodesToAdd;
+// Use CurrentEmitIdx as the parent index
+
+// traverse backwards with current emit idx
+[numthreads(8,1,1)]
+void BatchNodeAdd (uint3 id : SV_DispatchThreadID){
+    int idx = id.x;
+
+    int addIdx = CurrentEmitIdx - NumNodesToAdd + idx + 1;
+    if (addIdx < 0)
+        addIdx = MaxNodesSqrt * MaxNodesSqrt + addIdx;
+
+    if (idx < NumNodesToAdd){
+        nodes[addIdx] = NodesToAdd[idx];
+    }
+}
